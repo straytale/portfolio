@@ -52,10 +52,10 @@ API**
 2.  準備交易紀錄檔 `transaction.csv`，範例格式：
 
     ``` csv
-    Date,Code,Type,Action,Price,Number,Currency,Rate_to_TWD
-    2024-01-01,AAPL,STOCK,BUY,150,10,USD,31.5
-    2024-02-01,TSLA,STOCK,BUY,700,2,USD,31.2
-    2024-03-01,2330.TW,STOCK,BUY,550,5,TWD,1
+    Date,Code,Type,Action,Currency,Rate_to_TWD,Price,Number
+    2024-01-01,AAPL,STOCK,BUY,USD,31.5,150,10
+    2024-02-01,TSLA,STOCK,BUY,USD,31.2,700,2
+    2024-03-01,2330.TW,STOCK,BUY,TWD,1,550,5
     ```
 
 3.  執行程式：
