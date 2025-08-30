@@ -66,9 +66,12 @@ API**
 
 4.  範例輸出：
 
-        Total cost: NT$ 300,000
-        Total value: NT$ 325,000
-        Total unrealized PnL: NT$ 25,000
+               Code      Number    Type Currency    Price_now  ...  Avg_cost_TWD  Total_cost_TWD  Total_TWD  Unrealized_PnL   Ratio
+    0        VWRA.L   778.00000   STOCK      USD     158.5000  ...          4496         3497888    3767705          269817  88.05%
+    1       SOL-USD    31.46000  CRYPTO      USD     202.0692  ...          5064          159313     194235           34922   4.54%
+    2       BTC-USD     0.05298  CRYPTO      USD  108528.9453  ...       2915685          154473     175681           21208   4.11%
+    3  SUI20947-USD   900.22000  CRYPTO      USD       3.3146  ...           125          112528      91169          -21359   2.13%
+    4       ADA-USD  2000.20000  CRYPTO      USD       0.8225  ...            26           52005      50266           -1739   1.17%
 
 ------------------------------------------------------------------------
 
