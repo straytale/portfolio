@@ -1,70 +1,23 @@
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import sys
 import matplotlib.pyplot as plt
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, HRFlowable
-)
+from reportlab.platypus import Table, TableStyle, Image
 from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from datetime import datetime
 import io
-from reportlab.lib.units import cm
-from reportlab.pdfgen import canvas
-from reportlab.lib.enums import TA_CENTER, TA_RIGHT
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib import colors
-from reportlab.platypus import Frame, PageTemplate, BaseDocTemplate
-from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.lib.units import mm
 
-def get_current_price(code):
+# ---------- Data Functions ----------
+def get_current_price(code: str):
     ticker = yf.Ticker(code)
     hist = ticker.history(period="1d")["Close"]
     if hist.empty:
-        print(f"ERROR! Invalid code: {code}")
-        sys.exit(1)
-    return round(float(hist.iloc[-1]), 4)
-
-
-def do_statistic(df, price):
-    number_stat = df.groupby(["Code", "Action"])["Number"].sum().unstack(fill_value=0)
-    number_stat["Number"] = number_stat.get("BUY", 0) - number_stat.get("SELL", 0)
-
-    meta = df.groupby("Code")[["Type", "Currency"]].first()
-    statistic = number_stat[["Number"]].join(meta)
-    statistic["Price_now"] = statistic.index.map(price.get).fillna(0)
-
-    cost_stat = df.groupby(["Code", "Action"])[["cost_TWD", "cost_USD"]].sum().unstack(fill_value=0)
-    net_cost_usd = cost_stat["cost_USD"].get("BUY", 0) - cost_stat["cost_USD"].get("SELL", 0)
-    statistic["Avg_cost_USD"] = (net_cost_usd / statistic["Number"]).replace([np.inf, -np.inf, np.nan], 0).round(2)
-
-    net_cost_twd = cost_stat["cost_TWD"].get("BUY", 0) - cost_stat["cost_TWD"].get("SELL", 0)
-    statistic["Avg_cost_TWD"] = (net_cost_twd / statistic["Number"]).replace([np.inf, -np.inf, np.nan], 0).round(0).astype(np.int64)
-
-    statistic["Total_cost_TWD"] = (statistic["Number"] * statistic["Avg_cost_TWD"]).round(0).astype(np.int64)
-
-    usd2twd = price.get("USDTWD=X", 30)
-    statistic["Total_TWD"] = np.where(
-        statistic["Currency"] == "TWD",
-        statistic["Number"] * statistic["Price_now"],
-        statistic["Number"] * statistic["Price_now"] * usd2twd
-    ).round(0).astype(np.int64)
-
-    statistic["Unrealized_PnL"] = statistic["Total_TWD"] - statistic["Total_cost_TWD"]
-
-    total_sum = statistic["Total_TWD"].sum()
-    statistic["Ratio"] = (statistic["Total_TWD"] / total_sum * 100).map(lambda x: f"{x:.2f}%")
-
-    statistic = (
-        statistic.reset_index()
-        .query("Number != 0")
-        .sort_values("Total_TWD", ascending=False)
-        .reset_index(drop=True)
-    )
-
-    return statistic
+        raise ValueError(f"Invalid code or no price data: {code}")
+    return round(float(hist.iloc[-1]), 6)
 
 
 def get_data(path="transaction.csv"):
@@ -74,168 +27,301 @@ def get_data(path="transaction.csv"):
     df["Action"] = df["Action"].where(df["Action"].isin(["SELL", "BUY"]))
     df["Currency"] = df["Currency"].where(df["Currency"].isin(["USD", "TWD"]))
 
-    df["Price"] = df["Price"].round(4)
-    df["Number"] = df["Number"].round(5)
+    df["Price"] = df["Price"].round(2)
+    df["Quantity"] = df["Quantity"].round(6)
 
-    df["cost_TWD"] = (df["Rate_to_TWD"] * df["Price"] * df["Number"]).round(0).astype(np.int64)
+    df["cost_TWD"] = (df["Rate_to_TWD"] * df["Price"] * df["Quantity"]).round(0).astype(np.int64)
     df["cost_USD"] = np.where(
         df["Currency"] == "TWD",
         np.nan,
-        (df["Price"] * df["Number"]).round(2)
+        (df["Price"] * df["Quantity"]).round(4)
     )
     return df
 
 
-def make_pie(labels, sizes, title):
-    # 放大圖，字體也稍加大
-    fig, ax = plt.subplots(figsize=(3.6, 3.6))
-    ax.pie(
-        sizes,
-        labels=labels,
-        autopct='%1.1f%%',
-        textprops={'fontsize': 8}
+def do_statistic(df: pd.DataFrame, price: dict):
+    number_stat = df.groupby(["Code", "Action"])["Quantity"].sum().unstack(fill_value=0)
+    number_stat["Quantity"] = number_stat.get("BUY", 0) - number_stat.get("SELL", 0)
+
+    meta = df.groupby("Code")[["Type", "Currency"]].first()
+    statistic = number_stat[["Quantity"]].join(meta)
+    statistic["Price_now"] = (statistic.index.map(price.get).fillna(0)).round(2)
+
+    cost_stat = df.groupby(["Code", "Action"])[["cost_TWD", "cost_USD"]].sum().unstack(fill_value=0)
+
+    net_cost_usd = cost_stat["cost_USD"].get("BUY", 0) - cost_stat["cost_USD"].get("SELL", 0)
+    statistic["Avg_cost_USD"] = (net_cost_usd / statistic["Quantity"]).replace([np.inf, -np.inf, np.nan], 0).round(2)
+
+    net_cost_twd = cost_stat["cost_TWD"].get("BUY", 0) - cost_stat["cost_TWD"].get("SELL", 0)
+    statistic["Avg_cost_TWD"] = (net_cost_twd / statistic["Quantity"]).replace([np.inf, -np.inf, np.nan], 0).round(0).astype(np.int64)
+
+    statistic["Total_cost_TWD"] = (statistic["Quantity"] * statistic["Avg_cost_TWD"]).round(0).astype(np.int64)
+
+    usd2twd = price.get("USDTWD=X", 30)
+    statistic["Total_TWD"] = np.where(
+        statistic["Currency"] == "TWD",
+        statistic["Quantity"] * statistic["Price_now"],
+        statistic["Quantity"] * statistic["Price_now"] * usd2twd
+    ).round(0).astype(np.int64)
+
+    statistic["Unrealized_PnL"] = statistic["Total_TWD"] - statistic["Total_cost_TWD"]
+
+    total_sum = statistic["Total_TWD"].sum()
+    statistic["Ratio"] = (statistic["Total_TWD"] / (total_sum if total_sum != 0 else 1) * 100).map(lambda x: f"{x:.2f}%")
+
+    statistic = (
+        statistic.reset_index()
+        .query("Quantity != 0")
+        .sort_values("Total_TWD", ascending=False)
+        .reset_index(drop=True)
     )
-    ax.set_title(title, fontsize=10, fontweight='bold')
+    return statistic
+
+
+# ---------- visualization ----------
+def make_pie(labels, sizes, title):
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import io
+
+    labels = list(map(str, labels))
+    sizes = list(map(float, sizes))
+
+    fig, ax = plt.subplots(figsize=(4.2, 4.2), facecolor="white")
+
+    if not sizes or sum(sizes) == 0:
+        ax.text(0.5, 0.5, "No Data", ha="center", va="center", fontsize=14, fontweight="bold", color="#666666")
+        ax.axis("off")
+    else:
+        # Professional pastel color palette
+        colors = ["#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F",
+                  "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC"]
+
+        wedges, _ = ax.pie(
+            sizes,
+            labels=None,
+            startangle=90,
+            wedgeprops={'edgecolor': 'white', 'linewidth': 1},
+            colors=colors[:len(sizes)]
+        )
+
+        # Smart labels inside wedges
+        total = sum(sizes)
+        for i, (wedge, size) in enumerate(zip(wedges, sizes)):
+            angle = (wedge.theta2 + wedge.theta1) / 2.0
+            x = 0.65 * np.cos(np.deg2rad(angle))
+            y = 0.65 * np.sin(np.deg2rad(angle))
+            pct = size / total * 100 if total > 0 else 0
+            ax.text(x, y, f"{labels[i]}\n{pct:.1f}%",
+                    ha='center', va='center',
+                    fontsize=9, fontweight='bold', color="#333333")
+
+        # Elegant title
+        ax.set_title(title, fontsize=14, fontweight='bold', color="#2E2E2E", pad=12)
+
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches="tight", dpi=150)
+    plt.savefig(buf, format="png", bbox_inches="tight", dpi=220)
     plt.close(fig)
     buf.seek(0)
     return buf
 
 
-def export_pdf(statistic, pies, filename="portfolio_report.pdf"):
-    c = canvas.Canvas(filename, pagesize=A4)
+# ---------- PDF export ----------
+def build_table(data, page_width, font_name="Helvetica", font_size=8):
+    from reportlab.platypus import Table, TableStyle
+    from reportlab.lib import colors
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    col_count = len(data[0])
+    col_widths = []
+
+    for col in range(col_count):
+        max_text = max([str(r[col]) for r in data], key=len)
+        w = stringWidth(str(max_text), font_name, font_size) + 20
+        col_widths.append(w)
+
+    total_w = sum(col_widths)
+    if total_w > page_width:
+        scale = page_width / total_w
+        col_widths = [w * scale for w in col_widths]
+
+    table = Table(data, colWidths=col_widths, repeatRows=1)
+
+    table.setStyle(TableStyle([
+        # Header
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#2E3B4E")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('ALIGN', (0,0), (-1,0), 'CENTER'),
+        ('VALIGN', (0,0), (-1,0), 'MIDDLE'),
+
+        # Body alignment
+        ('ALIGN', (0,1), (0,-1), 'LEFT'),     
+        ('ALIGN', (2,1), (3,-1), 'CENTER'),   
+        ('ALIGN', (1,1), (-1,-1), 'CENTER'),  
+        ('VALIGN', (0,1), (-1,-1), 'MIDDLE'),
+
+        # Row striping
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor("#F9FBFD")]),
+
+        # Grid
+        ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
+        ('FONTSIZE', (0,0), (-1,-1), font_size),
+    ]))
+
+    return table
+
+
+
+def export_pdf(statistic: pd.DataFrame, pies, filename="portfolio_report.pdf"):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.pdfgen import canvas
+    from reportlab.platypus import Image, TableStyle
+    from datetime import datetime
+
     width, height = A4
-    margin = 30
-    block_height = (height - 2*margin) / 3
+    margin = 40
+    c = canvas.Canvas(filename, pagesize=A4)
 
-    styles = getSampleStyleSheet()
+    # === Layout ===
+    content_h = height - 2 * margin
+    block_h = content_h / 3.0
+    block1_top = height - margin
+    block2_top = block1_top - block_h
+    block3_top = block2_top - block_h
 
-    # ===== 區塊 1：標題 =====
-    top_y = height - margin
-    c.setFont("Helvetica-Bold", 16)
-    c.drawCentredString(width/2, top_y-20, "Portfolio Report")
-    c.setFont("Helvetica", 8)
+    # ---------- Block 1: Title + Table + Summary ----------
+    # Title
+    c.setFont("Helvetica-Bold", 22)
+    c.setFillColor(colors.HexColor("#2E3B4E"))
+    c.drawCentredString(width/2, block1_top - 25, "Portfolio Report")
 
-    # ===== 區塊 1：表格（嚴格限制在區塊高度內）=====
-    headers = statistic.columns.tolist()
-    rows = statistic.astype(str).values.tolist()
-    table_data = [headers] + rows
+    c.setFont("Helvetica", 10)
+    c.setFillColor(colors.HexColor("#666666"))
+    c.drawCentredString(width/2, block1_top - 42, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    # 表格寬度必須在左右邊界內
-    col_w = (width - 2*margin) / len(headers)
-
-    def build_table(data, page_width):
-        # 估算每欄寬度
-        font_name = "Helvetica"
-        font_size = 6.5
-        col_widths = []
-        for col in range(len(data[0])):
-            max_text = max([str(row[col]) for row in data], key=len)
-            text_w = stringWidth(max_text, font_name, font_size)
-            col_widths.append(text_w + 12)  # 加 padding
-
-        # 如果總寬度超過頁面寬度，就等比縮小
-        total_w = sum(col_widths)
-        max_w = page_width
-        if total_w > max_w:
-            scale = max_w / total_w
-            col_widths = [w * scale for w in col_widths]
-
-        t = Table(data, colWidths=col_widths, repeatRows=1)
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4F81BD")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),  
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), 
-            ("FONTSIZE", (0, 0), (-1, -1), font_size),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.lightgrey]),
-            ("BOX", (0, 0), (-1, -1), 0.25, colors.black),
-            ("LINEBEFORE", (0, 0), (0, -1), 0.25, colors.black),
-            ("LINEAFTER", (-1, 0), (-1, -1), 0.25, colors.black),
-        ]))
-        return t
-
-    table = build_table(table_data, width - 2*margin)
-    # 區塊可用高度（扣掉標題與間距）
-    avail_h = block_height - 70
-    # 如果超高就迭代刪除最後一列直到能塞進去
-    truncated = False
-    while True:
-        tw, th = table.wrapOn(c, width - 2*margin, avail_h)
-        if th <= avail_h:
-            break
-        if len(table_data) <= 2:  # 只剩表頭與一列，沒辦法再砍
-            break
-        truncated = True
-        table_data = table_data[:-1]
-        table = build_table(table_data)
-
-    if truncated:
-        # 加上一列省略提示；若仍超高，再刪到能容納
-        ellipsis_row = ['…'] * len(headers)
-        table_data = table_data + [ellipsis_row]
-        table = build_table(table_data)
-        while True:
-            tw, th = table.wrapOn(c, width - 2*margin, avail_h)
-            if th <= avail_h:
-                break
-            # 移除省略列前的一列再重試
-            if len(table_data) > 2:
-                table_data = table_data[:-2] + [ellipsis_row]
-                table = build_table(table_data)
+    def format_number(x):
+        try:
+            if isinstance(x, (int, float)):
+                if abs(x) >= 1:
+                    return f"{x:,.2f}" if not float(x).is_integer() else f"{int(x):,}"
+                else:
+                    return f"{x:,.4f}"  # 小數很小的情況
             else:
-                break
+                return str(x)
+        except:
+            return str(x)
+    
+    # Table
+    headers = statistic.columns.tolist()
+    display_rows = []
+    for _, r in statistic.iterrows():
+        out = []
+        for col in headers:
+            if col in ("Number", "Price_now", "Avg_cost_USD", "Avg_cost_TWD",
+                       "Total_cost_TWD", "Total_TWD", "Unrealized_PnL"):
+                out.append(format_number(r[col]))
+            else:
+                out.append(str(r[col]))
+        display_rows.append(out)
+    table_data = [headers] + display_rows
 
-    # 繪製表格
-    table_w, table_h = table.wrapOn(c, width - 2*margin, avail_h)
-    table.drawOn(c, margin, top_y - 60 - table_h)
+    avail_w = width - 2 * margin
+    table = build_table(table_data, avail_w, font_size=6)
+    table_w, table_h = table.wrap(avail_w, block_h / 2)
+    table_x = (width - table_w) / 2.0
+    table_y = block1_top - 90 - table_h
+    table.drawOn(c, table_x, table_y)
 
-    # 總結資訊（固定畫在表格正下方，不會跨出區塊）
+    # Summary (3-column)
     total_twd = int(statistic["Total_TWD"].sum())
     total_cost = int(statistic["Total_cost_TWD"].sum())
     total_pnl = int(statistic["Unrealized_PnL"].sum())
 
-    pnl_color = colors.green if total_pnl > 0 else (colors.red if total_pnl < 0 else colors.black)
-    summary = f"Total TWD: {total_twd:,}   Total Cost: {total_cost:,}   PnL: {total_pnl:,}"
+    summary_y = table_y - 28
+    c.setStrokeColor(colors.HexColor("#DDDDDD"))
+    c.line(margin, summary_y + 12, width - margin, summary_y + 12)
+
+    # Styling
+    c.setFont("Helvetica-Bold", 11)
+    text_color = colors.HexColor("#2E2E2E")
+    pnl_color = colors.green if total_pnl > 0 else (colors.red if total_pnl < 0 else text_color)
+
+    c.setFillColor(text_color)
+    c.drawString(margin, summary_y, f"Total Value: NT${total_twd:,}")
+    c.drawCentredString(width/2, summary_y, f"Total Cost: NT${total_cost:,}")
 
     c.setFillColor(pnl_color)
-    c.setFont("Helvetica-Bold", 9)
-    c.drawString(margin, top_y - 60 - table_h - 15, summary)
+    c.drawRightString(width - margin, summary_y, f"Unrealized PnL: NT${total_pnl:,}")
     c.setFillColor(colors.black)
 
-    # ===== 區塊 2：三個圓餅圖（放到能塞的最大尺寸）=====
-    mid_y = top_y - block_height
-    gap = 30  # 圖與圖的固定間距
-    img_size = (width - 2*margin - 2*gap) / 3.0  # 最大尺寸（正好塞滿一排）
-    y_img = mid_y - img_size - 20
+    # ---------- Block 2: Pie Charts ----------
+    valid_pies = [p for p in pies if p is not None]
+    if valid_pies:
+        n = len(valid_pies)
+        gap = 20
+        max_size_w = (width - 2*margin - (n - 1) * gap) / n
+        max_size_h = block_h * 0.9
+        img_size = min(max_size_w, max_size_h)
+        total_w = n * img_size + (n - 1) * gap
+        start_x = (width - total_w) / 2.0
+        img_y = block2_top - block_h/2 - img_size/2
+        for i, pbuf in enumerate(valid_pies):
+            x = start_x + i * (img_size + gap)
+            img = Image(pbuf, width=img_size, height=img_size)
+            img.drawOn(c, x, img_y)
 
-    for i, p in enumerate(pies):
-        img = Image(p, width=img_size, height=img_size)
-        img.drawOn(c, margin + i*(img_size + gap), y_img)
-
-    # ===== 區塊 3：空白/備註 =====
-    bottom_y = mid_y - block_height
-    c.setFont("Helvetica-Oblique", 8)
-
-    # 頁尾
-    c.setFont("Helvetica", 8)
-    c.drawString(margin, margin/2, f"Generated {datetime.now().strftime('%Y-%m-%d')}")
+    # ---------- Block 3: Reserved ----------
+    # left blank for future content
 
     c.save()
+    return filename
 
 
+
+# ---------- Main ----------
 if __name__ == "__main__":
     df = get_data("transaction.csv")
-    codes = df["Code"].unique().tolist() + ["USDTWD=X"]
-    current_price = {code: get_current_price(code) for code in codes}
+    codes = df["Code"].unique().tolist()
+    if "USDTWD=X" not in codes:
+        codes.append("USDTWD=X")
+
+    current_price = {}
+    for code in codes:
+        try:
+            current_price[code] = get_current_price(code)
+        except Exception as e:
+            print(f"Warning: {code} skipped ({e})")
+            current_price[code] = 0
 
     statistic = do_statistic(df, current_price)
     print(statistic)
 
-    pie1 = make_pie(statistic['Type'].value_counts().index, statistic['Type'].value_counts().values, "STOCK vs CRYPTO")
-    pie2 = make_pie(statistic[statistic['Type'] == 'STOCK']['Code'], statistic[statistic['Type'] == 'STOCK']['Total_TWD'], "Stock Allocation")
-    pie3 = make_pie(statistic[statistic['Type'] == 'CRYPTO']['Code'], statistic[statistic['Type'] == 'CRYPTO']['Total_TWD'], "Crypto Allocation")
+    # Pie 1: STOCK vs CRYPTO
+    labels, sizes = [], []
+    if 'Type' in statistic and 'Total_TWD' in statistic:
+        grouped = statistic.groupby('Type')['Total_TWD'].sum()
+        labels, sizes = grouped.index.tolist(), grouped.values.tolist()
+    pie1 = make_pie(labels, sizes, "STOCK vs CRYPTO")
 
-    export_pdf(statistic, [pie1, pie2, pie3], "portfolio_report.pdf")
-    print("PDF generated: portfolio_report.pdf")
+    # Pie 2: CRYPTO Allocation
+    labels_crypto, sizes_crypto = [], []
+    if 'Type' in statistic and 'Ratio' in statistic:
+        statistic['Ratio'] = pd.to_numeric(statistic['Ratio'].astype(str).str.replace('%',''), errors='coerce').fillna(0)
+        grouped = statistic[statistic['Type'] == 'CRYPTO'].copy()
+        grouped['Label'] = grouped['Code'].astype(str).str[:3]
+        labels_crypto = grouped['Label'].tolist()
+        sizes_crypto = grouped['Ratio'].tolist()
+    pie2 = make_pie(labels_crypto, sizes_crypto, "CRYPTO ALLOCATION")
+
+    # Pie 3: STOCK Allocation
+    labels_stock, sizes_stock = [], []
+    if 'Type' in statistic and 'Total_TWD' in statistic:
+        grouped_stock = statistic[statistic['Type'] == 'STOCK'].copy()
+        labels_stock = grouped_stock['Code'].tolist()
+        sizes_stock = grouped_stock['Total_TWD'].tolist()
+    pie3 = make_pie(labels_stock, sizes_stock, "STOCK ALLOCATION")
+
+    out = export_pdf(statistic, [pie1, pie2, pie3], "portfolio_report.pdf")
+    print("PDF generated:", out)
