@@ -1,13 +1,19 @@
 import pandas as pd
 import numpy as np
 import yfinance as yf
-
+import sys
 
 def get_current_price(code):
     """Get current price (closing price) from Yahoo Finance"""
     ticker = yf.Ticker(code)
     hist = ticker.history(period="1d")["Close"]
-    return round(float(hist.iloc[-1]), 4) if not hist.empty else None
+
+    if hist.empty:
+        print("ERROR! Invalid code in transaction.csv")
+        sys.exit(1)
+    else:
+        return round(float(hist.iloc[-1]), 4)
+
 
 
 def do_statistic(df, price):
