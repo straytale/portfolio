@@ -46,7 +46,7 @@ API**
 1.  安裝相依套件：
 
     ``` bash
-    pip install pandas numpy yfinance
+    pip install pandas numpy yfinance matplotlib reportlab
     ```
 
 2.  準備交易紀錄檔 `transaction.csv`，範例格式：
