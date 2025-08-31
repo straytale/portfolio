@@ -77,55 +77,6 @@ def do_statistic(df: pd.DataFrame, price: dict):
     )
     return statistic
 
-
-# ---------- visualization ----------
-def make_pie(labels, sizes, title):
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import io
-
-    labels = list(map(str, labels))
-    sizes = list(map(float, sizes))
-
-    fig, ax = plt.subplots(figsize=(4.2, 4.2), facecolor="white")
-
-    if not sizes or sum(sizes) == 0:
-        ax.text(0.5, 0.5, "No Data", ha="center", va="center", fontsize=14, fontweight="bold", color="#666666")
-        ax.axis("off")
-    else:
-        # Professional pastel color palette
-        colors = ["#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F",
-                  "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC"]
-
-        wedges, _ = ax.pie(
-            sizes,
-            labels=None,
-            startangle=90,
-            wedgeprops={'edgecolor': 'white', 'linewidth': 1},
-            colors=colors[:len(sizes)]
-        )
-
-        # Smart labels inside wedges
-        total = sum(sizes)
-        for i, (wedge, size) in enumerate(zip(wedges, sizes)):
-            angle = (wedge.theta2 + wedge.theta1) / 2.0
-            x = 0.65 * np.cos(np.deg2rad(angle))
-            y = 0.65 * np.sin(np.deg2rad(angle))
-            pct = size / total * 100 if total > 0 else 0
-            ax.text(x, y, f"{labels[i]}\n{pct:.1f}%",
-                    ha='center', va='center',
-                    fontsize=9, fontweight='bold', color="#333333")
-
-        # Elegant title
-        ax.set_title(title, fontsize=14, fontweight='bold', color="#2E2E2E", pad=12)
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight", dpi=220)
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-
 # ---------- PDF export ----------
 def build_table(data, page_width, font_name="Helvetica", font_size=8):
     from reportlab.platypus import Table, TableStyle
@@ -171,27 +122,112 @@ def build_table(data, page_width, font_name="Helvetica", font_size=8):
 
     return table
 
+import matplotlib.pyplot as plt
+import tempfile
+import os
+
+import matplotlib.pyplot as plt
+import tempfile
+import os
+
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+
+def plot_block2_charts(statistic):
+    imgs = {}
+
+    # 自訂調色盤
+    custom_colors = ["#DCD6F7", "#A6B1E1", "#CACFD6", "#D6E5E3", "#424874"]
+
+    # ---- 1. Stock vs Crypto (圓餅圖) ----
+    stock_val = statistic.loc[statistic["Type"].str.upper()=="STOCK", "Total_TWD"].sum()
+    crypto_val = statistic.loc[statistic["Type"].str.upper()=="CRYPTO", "Total_TWD"].sum()
+    values = [stock_val, crypto_val]
+    labels = ["Stock", "Crypto"]
+
+    if sum(values) > 0:
+        fig, ax = plt.subplots(figsize=(3,3))
+        ax.pie(
+            values,
+            labels=labels,
+            autopct="%1.2f%%",
+            startangle=90,
+            colors=custom_colors[:2],
+            textprops={'color':'black', 'fontsize':8}   # ← 字縮小
+        )
+        tmp1 = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        plt.savefig(tmp1.name, bbox_inches="tight", dpi=150)
+        imgs["vs"] = tmp1.name
+        plt.close()
+
+    # ---- 2. Stock 分佈 ----
+    stock_df = statistic[statistic["Type"].str.upper()=="STOCK"]
+    if not stock_df.empty:
+        fig, ax = plt.subplots(figsize=(3,3))
+        ax.pie(
+            stock_df["Total_TWD"],
+            labels=stock_df["Code"],
+            autopct="%1.2f%%",
+            startangle=90,
+            colors=custom_colors[:len(stock_df)],
+            textprops={'color':'black', 'fontsize':8}   # ← 字縮小
+        )
+        tmp2 = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        plt.savefig(tmp2.name, bbox_inches="tight", dpi=150)
+        imgs["stock"] = tmp2.name
+        plt.close()
+
+    # ---- 3. Crypto 分佈 ----
+    crypto_df = statistic[statistic["Type"].str.upper()=="CRYPTO"].copy()
+    if not crypto_df.empty:
+        crypto_df["ShortCode"] = crypto_df["Code"].str[:3]  # 只取前三字元
+        fig, ax = plt.subplots(figsize=(3,3))
+        ax.pie(
+            crypto_df["Total_TWD"],
+            labels=crypto_df["ShortCode"],
+            autopct="%1.2f%%",
+            startangle=90,
+            colors=custom_colors[:len(crypto_df)],
+            textprops={'color':'black', 'fontsize':8}   # ← 字縮小
+        )
+        tmp3 = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        plt.savefig(tmp3.name, bbox_inches="tight", dpi=150)
+        imgs["crypto"] = tmp3.name
+        plt.close()
+
+    return imgs
 
 
-def export_pdf(statistic: pd.DataFrame, pies, filename="portfolio_report.pdf"):
-    from reportlab.lib.pagesizes import A4
+def format_number(x):
+    try:
+        if isinstance(x, (int, float)):
+            if abs(x) >= 1:
+                return f"{x:,.2f}" if not float(x).is_integer() else f"{int(x):,}"
+            else:
+                return f"{x:,.4f}"
+        else:
+            return str(x)
+    except:
+        return str(x)
+
+
+def export_pdf(statistic: pd.DataFrame, filename="portfolio_report.pdf"):
+    from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
     from reportlab.pdfgen import canvas
-    from reportlab.platypus import Image, TableStyle
     from datetime import datetime
+    from reportlab.lib.units import cm
 
-    width, height = A4
-    margin = 40
-    c = canvas.Canvas(filename, pagesize=A4)
+    width, height = landscape(A4)
+    margin = 1 * cm
+    c = canvas.Canvas(filename, pagesize=landscape(A4))
 
-    # === Layout ===
+    # === Page 1 ===
     content_h = height - 2 * margin
-    block_h = content_h / 3.0
+    block_h = content_h / 2.0
     block1_top = height - margin
     block2_top = block1_top - block_h
-    block3_top = block2_top - block_h
 
-    # ---------- Block 1: Title + Table + Summary ----------
     # Title
     c.setFont("Helvetica-Bold", 22)
     c.setFillColor(colors.HexColor("#2E3B4E"))
@@ -199,85 +235,81 @@ def export_pdf(statistic: pd.DataFrame, pies, filename="portfolio_report.pdf"):
 
     c.setFont("Helvetica", 10)
     c.setFillColor(colors.HexColor("#666666"))
-    c.drawCentredString(width/2, block1_top - 42, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    c.drawCentredString(width/2, block1_top - 42,
+                        f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    def format_number(x):
-        try:
-            if isinstance(x, (int, float)):
-                if abs(x) >= 1:
-                    return f"{x:,.2f}" if not float(x).is_integer() else f"{int(x):,}"
-                else:
-                    return f"{x:,.4f}"  # 小數很小的情況
-            else:
-                return str(x)
-        except:
-            return str(x)
-    
     # Table
     headers = statistic.columns.tolist()
     display_rows = []
     for _, r in statistic.iterrows():
-        out = []
+        row = []
         for col in headers:
             if col in ("Number", "Price_now", "Avg_cost_USD", "Avg_cost_TWD",
                        "Total_cost_TWD", "Total_TWD", "Unrealized_PnL"):
-                out.append(format_number(r[col]))
+                row.append(format_number(r[col]))
             else:
-                out.append(str(r[col]))
-        display_rows.append(out)
+                row.append(str(r[col]))
+        display_rows.append(row)
     table_data = [headers] + display_rows
 
     avail_w = width - 2 * margin
-    table = build_table(table_data, avail_w, font_size=6)
-    table_w, table_h = table.wrap(avail_w, block_h / 2)
+    table = build_table(table_data, avail_w, font_size=9)
+    table_w, table_h = table.wrap(avail_w, block_h * 0.8)
     table_x = (width - table_w) / 2.0
     table_y = block1_top - 90 - table_h
     table.drawOn(c, table_x, table_y)
 
-    # Summary (3-column)
+    # Summary
     total_twd = int(statistic["Total_TWD"].sum())
     total_cost = int(statistic["Total_cost_TWD"].sum())
     total_pnl = int(statistic["Unrealized_PnL"].sum())
 
-    summary_y = table_y - 28
+    summary_y = table_y - 45
     c.setStrokeColor(colors.HexColor("#DDDDDD"))
-    c.line(margin, summary_y + 12, width - margin, summary_y + 12)
+    c.line(margin, summary_y + 20, width - margin, summary_y + 20)
 
-    # Styling
-    c.setFont("Helvetica-Bold", 11)
-    text_color = colors.HexColor("#2E2E2E")
-    pnl_color = colors.green if total_pnl > 0 else (colors.red if total_pnl < 0 else text_color)
-
-    c.setFillColor(text_color)
+    c.setFont("Helvetica-Bold", 13)
+    pnl_color = colors.green if total_pnl > 0 else (colors.red if total_pnl < 0 else colors.black)
+    c.setFillColor(colors.black)
     c.drawString(margin, summary_y, f"Total Value: NT${total_twd:,}")
     c.drawCentredString(width/2, summary_y, f"Total Cost: NT${total_cost:,}")
-
     c.setFillColor(pnl_color)
     c.drawRightString(width - margin, summary_y, f"Unrealized PnL: NT${total_pnl:,}")
-    c.setFillColor(colors.black)
 
-    # ---------- Block 2: Pie Charts ----------
-    valid_pies = [p for p in pies if p is not None]
-    if valid_pies:
-        n = len(valid_pies)
-        gap = 20
-        max_size_w = (width - 2*margin - (n - 1) * gap) / n
-        max_size_h = block_h * 0.9
-        img_size = min(max_size_w, max_size_h)
-        total_w = n * img_size + (n - 1) * gap
-        start_x = (width - total_w) / 2.0
-        img_y = block2_top - block_h/2 - img_size/2
-        for i, pbuf in enumerate(valid_pies):
-            x = start_x + i * (img_size + gap)
-            img = Image(pbuf, width=img_size, height=img_size)
-            img.drawOn(c, x, img_y)
+    # Charts
+    charts = plot_block2_charts(statistic)
+    col_w = (width - 2*margin) / 3.0
+    chart_h = block_h - 20
 
-    # ---------- Block 3: Reserved ----------
-    # left blank for future content
+    for i, key in enumerate(["vs", "stock", "crypto"]):
+        if key in charts:
+            x = margin + i*col_w
+            c.drawImage(charts[key], x, margin, width=col_w, height=chart_h,
+                        preserveAspectRatio=True, anchor="c")
+
+    for f in charts.values():
+        os.unlink(f)
+
+    c.showPage()
+
+    # === Page 2 (四區塊 placeholder) ===
+    block_w = (width - 2*margin) / 2
+    block_h = (height - 2*margin) / 2
+
+    c.setFont("Helvetica-Bold", 14)
+    c.setStrokeColor(colors.grey)
+    c.setDash(6, 3)  # 虛線
+
+    labels = ["Block A", "Block B", "Block C", "Block D"]
+    for i in range(2):
+        for j in range(2):
+            x = margin + j * block_w
+            y = height - margin - (i+1) * block_h
+            c.rect(x, y, block_w, block_h, stroke=1, fill=0)
+            c.drawCentredString(x + block_w/2, y + block_h/2, labels[i*2 + j])
 
     c.save()
     return filename
-
 
 
 # ---------- Main ----------
@@ -298,30 +330,5 @@ if __name__ == "__main__":
     statistic = do_statistic(df, current_price)
     print(statistic)
 
-    # Pie 1: STOCK vs CRYPTO
-    labels, sizes = [], []
-    if 'Type' in statistic and 'Total_TWD' in statistic:
-        grouped = statistic.groupby('Type')['Total_TWD'].sum()
-        labels, sizes = grouped.index.tolist(), grouped.values.tolist()
-    pie1 = make_pie(labels, sizes, "STOCK vs CRYPTO")
-
-    # Pie 2: CRYPTO Allocation
-    labels_crypto, sizes_crypto = [], []
-    if 'Type' in statistic and 'Ratio' in statistic:
-        statistic['Ratio'] = pd.to_numeric(statistic['Ratio'].astype(str).str.replace('%',''), errors='coerce').fillna(0)
-        grouped = statistic[statistic['Type'] == 'CRYPTO'].copy()
-        grouped['Label'] = grouped['Code'].astype(str).str[:3]
-        labels_crypto = grouped['Label'].tolist()
-        sizes_crypto = grouped['Ratio'].tolist()
-    pie2 = make_pie(labels_crypto, sizes_crypto, "CRYPTO ALLOCATION")
-
-    # Pie 3: STOCK Allocation
-    labels_stock, sizes_stock = [], []
-    if 'Type' in statistic and 'Total_TWD' in statistic:
-        grouped_stock = statistic[statistic['Type'] == 'STOCK'].copy()
-        labels_stock = grouped_stock['Code'].tolist()
-        sizes_stock = grouped_stock['Total_TWD'].tolist()
-    pie3 = make_pie(labels_stock, sizes_stock, "STOCK ALLOCATION")
-
-    out = export_pdf(statistic, [pie1, pie2, pie3], "portfolio_report.pdf")
+    out = export_pdf(statistic, "portfolio_report.pdf")
     print("PDF generated:", out)
