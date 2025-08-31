@@ -75,10 +75,9 @@ API**
     4       ADA-USD  2000.20000  CRYPTO      USD       0.8225  ...            26           52005      50266           -1739   1.17%
     ```
 
-5.  產生PDF檔案報告
-
+5.  產生PDF報告
+   
 <img width="766" height="544" alt="image" src="https://github.com/user-attachments/assets/5d3a90a5-4225-4a37-8b1e-4c706538ee39" />
-
    
 ------------------------------------------------------------------------
 
