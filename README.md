@@ -76,6 +76,7 @@ API**
     ```
 
 5.  產生PDF檔案報告
+    <img width="766" height="544" alt="image" src="https://github.com/user-attachments/assets/5d3a90a5-4225-4a37-8b1e-4c706538ee39" />
 
    
 ------------------------------------------------------------------------
