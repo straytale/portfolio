@@ -67,17 +67,32 @@ API**
 4.  範例輸出：
 
     ``` bash
-               Code      Number    Type Currency    Price_now  ...  Avg_cost_TWD  Total_cost_TWD  Total_TWD  Unrealized_PnL   Ratio
-    0        VWRA.L   778.00000   STOCK      USD     158.5000  ...          4496         3497888    3767705          269817  88.05%
-    1       SOL-USD    31.46000  CRYPTO      USD     202.0692  ...          5064          159313     194235           34922   4.54%
-    2       BTC-USD     0.05298  CRYPTO      USD  108528.9453  ...       2915685          154473     175681           21208   4.11%
-    3  SUI20947-USD   900.22000  CRYPTO      USD       3.3146  ...           125          112528      91169          -21359   2.13%
-    4       ADA-USD  2000.20000  CRYPTO      USD       0.8225  ...            26           52005      50266           -1739   1.17%
+               Code     Quantity    Type Currency  Price_now  Avg_cost_USD  Avg_cost_TWD  Total_cost_TWD  Total_TWD  Unrealized_PnL   Ratio
+    0        VWRA.L   778.000000   STOCK      USD     158.50        143.32          4496         3497888    3767706          269818  87.94%
+    1       SOL-USD    31.460000  CRYPTO      USD     205.24        160.51          5064          159313     197283           37970   4.60%
+    2       BTC-USD     0.052984  CRYPTO      USD  109271.29      89603.00       2915673          154484     176896           22412   4.13%
+    3  SUI20947-USD   900.220000  CRYPTO      USD       3.33          4.04           125          112528      91593          -20935   2.14%
+    4       ADA-USD  2000.200000  CRYPTO      USD       0.83          0.84            26           52005      50725           -1280   1.18%
     ```
 
 5.  產生PDF報告
    
 <p align="center"> <img src="https://github.com/user-attachments/assets/5d3a90a5-4225-4a37-8b1e-4c706538ee39" width="650"/>
+
+6. 欄位說明
+
+   ``` bash
+   Code : 代號
+   Quantity : 持有數量
+   Type : 股票或是加密貨幣
+   Currency : 計價幣別
+   Price_now : 現價
+   Avg_cost_USD : 每單位平均成本(美金)
+   Avg_cost_TWD : 每單位平均成本(台幣)
+   Total_cost_TWD : 總成本(台幣)
+   Total_TWD : 總現值(台幣)
+   Unrealized_PnL : 未實現損益(台幣)
+   ```
    
 ------------------------------------------------------------------------
 
