@@ -110,6 +110,9 @@ API**
 
 -   不考慮 **已實現損益** 計算（長期持有才是最佳策略）。
 
-- **待更新** (停止更新: 個人認為用Google 試算表即可)
+- ~~待更新~~
   - 指定時間區間的損益波動
   - 與同期大盤的比較（VT, VOO, VXUS, 0050）
+ 
+- **停止更新** (使用試算表是個好選擇)
+  - https://docs.google.com/spreadsheets/d/1RaXqaKFhgkIRugKE3iDeBufX7QcbuvkI6UlEBUwNPGg/edit?gid=1030378572#gid=1030378572
