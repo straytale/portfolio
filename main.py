@@ -2,17 +2,20 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
-from reportlab.platypus import Table, TableStyle, Image
+import tempfile
+import os
+from reportlab.platypus import Table, TableStyle
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.lib.units import cm
 from datetime import datetime
-import io
-from reportlab.lib.units import mm
+
 
 # ---------- Data Functions ----------
 def get_current_price(code: str):
+    """Fetch latest close price for a ticker using yfinance."""
     ticker = yf.Ticker(code)
     hist = ticker.history(period="1d")["Close"]
     if hist.empty:
@@ -21,6 +24,7 @@ def get_current_price(code: str):
 
 
 def get_data(path="transaction.csv"):
+    """Load transaction data and preprocess with cost calculations."""
     df = pd.read_csv(path)
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df["Type"] = df["Type"].where(df["Type"].isin(["CRYPTO", "STOCK"]))
@@ -66,8 +70,9 @@ def do_statistic(df: pd.DataFrame, price: dict):
 
     statistic["Unrealized_PnL"] = statistic["Total_TWD"] - statistic["Total_cost_TWD"]
 
-    total_sum = statistic["Total_TWD"].sum()
-    statistic["Ratio"] = (statistic["Total_TWD"] / (total_sum if total_sum != 0 else 1) * 100).map(lambda x: f"{x:.2f}%")
+    # --- FIX: ratio calculation ---
+    total_abs = statistic["Total_TWD"].abs().sum()
+    statistic["Ratio"] = (statistic["Total_TWD"].abs() / (total_abs if total_abs != 0 else 1) * 100).map(lambda x: f"{x:.2f}%")
 
     statistic = (
         statistic.reset_index()
@@ -77,12 +82,10 @@ def do_statistic(df: pd.DataFrame, price: dict):
     )
     return statistic
 
-# ---------- PDF export ----------
-def build_table(data, page_width, font_name="Helvetica", font_size=8):
-    from reportlab.platypus import Table, TableStyle
-    from reportlab.lib import colors
-    from reportlab.pdfbase.pdfmetrics import stringWidth
 
+# ---------- PDF Helpers ----------
+def build_table(data, page_width, font_name="Helvetica", font_size=8):
+    """Build a ReportLab table with auto column sizing and styling."""
     col_count = len(data[0])
     col_widths = []
 
@@ -99,97 +102,66 @@ def build_table(data, page_width, font_name="Helvetica", font_size=8):
     table = Table(data, colWidths=col_widths, repeatRows=1)
 
     table.setStyle(TableStyle([
-        # Header
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#2E3B4E")),
         ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
         ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
         ('ALIGN', (0,0), (-1,0), 'CENTER'),
         ('VALIGN', (0,0), (-1,0), 'MIDDLE'),
 
-        # Body alignment
-        ('ALIGN', (0,1), (0,-1), 'LEFT'),     
-        ('ALIGN', (2,1), (3,-1), 'CENTER'),   
-        ('ALIGN', (1,1), (-1,-1), 'CENTER'),  
+        ('ALIGN', (0,1), (0,-1), 'LEFT'),
+        ('ALIGN', (1,1), (-1,-1), 'CENTER'),
         ('VALIGN', (0,1), (-1,-1), 'MIDDLE'),
 
-        # Row striping
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor("#F9FBFD")]),
-
-        # Grid
         ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
         ('FONTSIZE', (0,0), (-1,-1), font_size),
     ]))
 
     return table
 
-import matplotlib.pyplot as plt
-import tempfile
-import os
-
-import matplotlib.pyplot as plt
-import tempfile
-import os
-
-import matplotlib.cm as cm
-import matplotlib.colors as mcolors
 
 def plot_block2_charts(statistic):
+    """Generate pie charts for distribution summary."""
     imgs = {}
-
-    # 自訂調色盤
     custom_colors = ["#DCD6F7", "#A6B1E1", "#CACFD6", "#D6E5E3", "#424874"]
 
-    # ---- 1. Stock vs Crypto (圓餅圖) ----
-    stock_val = statistic.loc[statistic["Type"].str.upper()=="STOCK", "Total_TWD"].sum()
-    crypto_val = statistic.loc[statistic["Type"].str.upper()=="CRYPTO", "Total_TWD"].sum()
+    # Stock vs Crypto
+    stock_val = statistic.loc[statistic["Type"].str.upper()=="STOCK", "Total_TWD"].abs().sum()
+    crypto_val = statistic.loc[statistic["Type"].str.upper()=="CRYPTO", "Total_TWD"].abs().sum()
     values = [stock_val, crypto_val]
     labels = ["Stock", "Crypto"]
 
     if sum(values) > 0:
         fig, ax = plt.subplots(figsize=(3,3))
-        ax.pie(
-            values,
-            labels=labels,
-            autopct="%1.2f%%",
-            startangle=90,
-            colors=custom_colors[:2],
-            textprops={'color':'black', 'fontsize':8}   # ← 字縮小
-        )
+        ax.pie(values, labels=labels, autopct="%1.2f%%", startangle=90,
+               colors=custom_colors[:2], textprops={'color':'black', 'fontsize':8})
         tmp1 = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         plt.savefig(tmp1.name, bbox_inches="tight", dpi=150)
         imgs["vs"] = tmp1.name
         plt.close()
 
-    # ---- 2. Stock 分佈 ----
-    stock_df = statistic[statistic["Type"].str.upper()=="STOCK"]
+    # Stock distribution
+    stock_df = statistic[statistic["Type"].str.upper()=="STOCK"].copy()
     if not stock_df.empty:
+        vals = stock_df["Total_TWD"].abs()
         fig, ax = plt.subplots(figsize=(3,3))
-        ax.pie(
-            stock_df["Total_TWD"],
-            labels=stock_df["Code"],
-            autopct="%1.2f%%",
-            startangle=90,
-            colors=custom_colors[:len(stock_df)],
-            textprops={'color':'black', 'fontsize':8}   # ← 字縮小
-        )
+        ax.pie(vals, labels=stock_df["Code"], autopct="%1.2f%%",
+               startangle=90, colors=custom_colors[:len(stock_df)],
+               textprops={'color':'black', 'fontsize':8})
         tmp2 = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         plt.savefig(tmp2.name, bbox_inches="tight", dpi=150)
         imgs["stock"] = tmp2.name
         plt.close()
 
-    # ---- 3. Crypto 分佈 ----
+    # Crypto distribution
     crypto_df = statistic[statistic["Type"].str.upper()=="CRYPTO"].copy()
     if not crypto_df.empty:
-        crypto_df["ShortCode"] = crypto_df["Code"].str[:3]  # 只取前三字元
+        crypto_df["ShortCode"] = crypto_df["Code"].str[:3]
+        vals = crypto_df["Total_TWD"].abs()
         fig, ax = plt.subplots(figsize=(3,3))
-        ax.pie(
-            crypto_df["Total_TWD"],
-            labels=crypto_df["ShortCode"],
-            autopct="%1.2f%%",
-            startangle=90,
-            colors=custom_colors[:len(crypto_df)],
-            textprops={'color':'black', 'fontsize':8}   # ← 字縮小
-        )
+        ax.pie(vals, labels=crypto_df["ShortCode"], autopct="%1.2f%%",
+               startangle=90, colors=custom_colors[:len(crypto_df)],
+               textprops={'color':'black', 'fontsize':8})
         tmp3 = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         plt.savefig(tmp3.name, bbox_inches="tight", dpi=150)
         imgs["crypto"] = tmp3.name
@@ -199,6 +171,7 @@ def plot_block2_charts(statistic):
 
 
 def format_number(x):
+    """Format numbers nicely for table export."""
     try:
         if isinstance(x, (int, float)):
             if abs(x) >= 1:
@@ -212,12 +185,7 @@ def format_number(x):
 
 
 def export_pdf(statistic: pd.DataFrame, filename="portfolio_report.pdf"):
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib import colors
-    from reportlab.pdfgen import canvas
-    from datetime import datetime
-    from reportlab.lib.units import cm
-
+    """Export the report to a PDF file."""
     width, height = landscape(A4)
     margin = 1 * cm
     c = canvas.Canvas(filename, pagesize=landscape(A4))
@@ -226,7 +194,6 @@ def export_pdf(statistic: pd.DataFrame, filename="portfolio_report.pdf"):
     content_h = height - 2 * margin
     block_h = content_h / 2.0
     block1_top = height - margin
-    block2_top = block1_top - block_h
 
     # Title
     c.setFont("Helvetica-Bold", 22)
@@ -244,7 +211,7 @@ def export_pdf(statistic: pd.DataFrame, filename="portfolio_report.pdf"):
     for _, r in statistic.iterrows():
         row = []
         for col in headers:
-            if col in ("Number", "Price_now", "Avg_cost_USD", "Avg_cost_TWD",
+            if col in ("Quantity", "Price_now", "Avg_cost_USD", "Avg_cost_TWD",
                        "Total_cost_TWD", "Total_TWD", "Unrealized_PnL"):
                 row.append(format_number(r[col]))
             else:
@@ -292,13 +259,13 @@ def export_pdf(statistic: pd.DataFrame, filename="portfolio_report.pdf"):
 
     c.showPage()
 
-    # === Page 2 (四區塊 placeholder) ===
+    # === Page 2 (Placeholder blocks) ===
     block_w = (width - 2*margin) / 2
     block_h = (height - 2*margin) / 2
 
     c.setFont("Helvetica-Bold", 14)
     c.setStrokeColor(colors.grey)
-    c.setDash(6, 3)  # 虛線
+    c.setDash(6, 3)
 
     labels = ["Block A", "Block B", "Block C", "Block D"]
     for i in range(2):
