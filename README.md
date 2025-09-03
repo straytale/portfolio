@@ -114,5 +114,5 @@ API**
   - 指定時間區間的損益波動
   - 與同期大盤的比較（VT, VOO, VXUS, 0050）
  
-- **停止更新** (使用試算表是個好選擇)
-  - https://docs.google.com/spreadsheets/d/1RaXqaKFhgkIRugKE3iDeBufX7QcbuvkI6UlEBUwNPGg/edit?gid=1030378572#gid=1030378572
+- **停止更新** 
+  - 試算表是個好選擇
