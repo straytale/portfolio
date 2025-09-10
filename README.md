@@ -116,3 +116,4 @@ API**
  
 - **停止更新** 
   - 試算表是個好選擇
+  - https://docs.google.com/spreadsheets/d/1v-pvdhWIqkGPDExa7bdjvmpKJwle_DmYt8P8PDtFX14/edit?gid=279663947#gid=279663947
